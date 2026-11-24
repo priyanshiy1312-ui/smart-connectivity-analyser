@@ -24,6 +24,7 @@ let lastTestTime = null;
 let downtimeSeconds = 0;
 let currentLocation = null;
 let sessionTests = [];
+let latestDiagnosticResult = null;
 let savedLocations = [];
 let metricsRestoredFromHistory = false;
 let offlineClearedMetrics = false;
@@ -252,6 +253,11 @@ function setupButtons() {
     $("exportCSV")?.addEventListener(
         "click",
         exportHistoryToCSV
+    );
+
+    $("exportJSON")?.addEventListener(
+        "click",
+        exportLatestDiagnosticAsJSON
     );
 
     $("historyRange")?.addEventListener("change", (event) => {
@@ -1650,6 +1656,7 @@ async function startNetworkTest() {
     }
 
     testInProgress = true;
+    latestDiagnosticResult = null;
     metricsRestoredFromHistory = false;
     offlineClearedMetrics = false;
 
@@ -1737,6 +1744,17 @@ async function startNetworkTest() {
 
             latitude: currentLocation?.latitude ?? null,
             longitude: currentLocation?.longitude ?? null
+        };
+
+        latestDiagnosticResult = {
+            timestamp: entry.timestamp,
+            download_mbps: entry.download_mbps,
+            upload_mbps: entry.upload_mbps,
+            ping_ms: entry.ping_ms,
+            jitter_ms: entry.jitter_ms,
+            packet_loss: entry.packet_loss,
+            connectivity_score: entry.connectivity_score,
+            network_type: entry.network_type
         };
 
         sessionTests.push(normalizeHistoryItem(entry));
@@ -2592,6 +2610,136 @@ async function saveNetworkTest(testData) {
    CSV EXPORT
    ========================================================= */
 
+
+/* =========================================================
+   DIAGNOSTIC JSON EXPORT
+   ========================================================= */
+
+function buildDiagnosticExport(result) {
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+        throw new TypeError("A diagnostic result is required.");
+    }
+
+    function exportNumber(value) {
+        if (
+            value === null ||
+            value === undefined ||
+            value === "" ||
+            (typeof value === "string" && value.trim() === "") ||
+            typeof value === "boolean" ||
+            typeof value === "object"
+        ) {
+            return null;
+        }
+
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    }
+
+    const metrics = {
+        download_mbps: exportNumber(result.download_mbps),
+        upload_mbps: exportNumber(result.upload_mbps),
+        ping_ms: exportNumber(result.ping_ms),
+        jitter_ms: exportNumber(result.jitter_ms),
+        packet_loss_percent: exportNumber(result.packet_loss),
+        connectivity_score: exportNumber(result.connectivity_score)
+    };
+
+    const isComplete = Object.values(metrics).every(
+        (value) => value !== null
+    );
+
+    return {
+        schema_version: "1.0.0",
+        timestamp:
+            typeof result.timestamp === "string" && result.timestamp.trim()
+                ? result.timestamp
+                : null,
+        test_status: isComplete ? "completed" : "partial",
+        metrics,
+        measurement_metadata: {
+            network_type:
+                typeof result.network_type === "string" &&
+                result.network_type.trim()
+                    ? result.network_type
+                    : null,
+            units: {
+                download_mbps: "Mbps",
+                upload_mbps: "Mbps",
+                ping_ms: "ms",
+                jitter_ms: "ms",
+                packet_loss_percent: "%",
+                connectivity_score: "%"
+            }
+        }
+    };
+}
+
+function downloadDiagnosticJSON(result, environment = {}) {
+    let objectUrl = null;
+    let urlApi = null;
+
+    try {
+        const payload = buildDiagnosticExport(result);
+        const BlobConstructor = environment.Blob || Blob;
+        urlApi = environment.URL || URL;
+        const doc = environment.document || document;
+
+        const blob = new BlobConstructor(
+            [JSON.stringify(payload, null, 2)],
+            { type: "application/json" }
+        );
+
+        objectUrl = urlApi.createObjectURL(blob);
+
+        const link = doc.createElement("a");
+        link.href = objectUrl;
+
+        const filenameTimestamp = (
+            payload.timestamp || new Date().toISOString()
+        ).replace(/[:.]/g, "-");
+
+        link.download = `network-diagnostic-${filenameTimestamp}.json`;
+
+        if (doc.body) {
+            doc.body.appendChild(link);
+        }
+
+        link.click();
+        link.remove?.();
+
+        return true;
+    } catch (error) {
+        console.error("Diagnostic JSON export failed:", error);
+        return false;
+    } finally {
+        if (objectUrl && urlApi) {
+            try {
+                urlApi.revokeObjectURL(objectUrl);
+            } catch (error) {
+                console.error("Could not release JSON export URL:", error);
+            }
+        }
+    }
+}
+
+function exportLatestDiagnosticAsJSON() {
+    if (!latestDiagnosticResult) {
+        showToast("Complete a network test before exporting a diagnostic.");
+        return false;
+    }
+
+    const success = downloadDiagnosticJSON(latestDiagnosticResult);
+
+    showToast(
+        success
+            ? "Diagnostic JSON exported successfully."
+            : "Could not export diagnostic JSON. Please try again."
+    );
+
+    return success;
+}
+
 function exportHistoryToCSV() {
     if (!sessionTests.length) {
         showToast("No network history available to export.");
@@ -2838,6 +2986,9 @@ if (typeof window !== "undefined") {
     window.exportHistoryToCSV =
         exportHistoryToCSV;
 
+    window.exportLatestDiagnosticAsJSON =
+        exportLatestDiagnosticAsJSON;
+
     window.loadNetworkHistory =
         loadNetworkHistory;
 
@@ -2871,6 +3022,8 @@ if (typeof module !== "undefined" && module.exports) {
         updateNetworkStatus,
         handleConnectivityTransition,
         formatAnomalyMetric,
+        buildDiagnosticExport,
+        downloadDiagnosticJSON,
         loadNetworkHistory,
         smartConnectivity,
         resolveNetworkType,
