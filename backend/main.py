@@ -1040,152 +1040,65 @@ def network_quality():
 
 
 @app.post("/api/network-test")
-
 def save_network_test(data: NetworkTest):
+    timestamp = data.timestamp or datetime.now().isoformat()
+    connection = None
 
+    try:
+        connection = get_connection()
+        cursor = connection.cursor()
 
-
-    timestamp = (
-
-        data.timestamp
-
-        or datetime.now().isoformat()
-
-    )
-
-
-
-
-
-    connection = get_connection()
-
-
-
-    cursor = connection.cursor()
-
-
-
-
-
-    cursor.execute(
-
-        """
-
-        INSERT INTO network_tests (
-
-            timestamp,
-
-            download_mbps,
-
-            upload_mbps,
-
-            ping_ms,
-
-            jitter_ms,
-
-            packet_loss,
-
-            network_type,
-
-            connectivity_score,
-
-            latitude,
-
-            longitude
-
+        cursor.execute(
+            """
+            INSERT INTO network_tests (
+                timestamp,
+                download_mbps,
+                upload_mbps,
+                ping_ms,
+                jitter_ms,
+                packet_loss,
+                network_type,
+                connectivity_score,
+                latitude,
+                longitude
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp,
+                data.download_mbps,
+                data.upload_mbps,
+                data.ping_ms,
+                data.jitter_ms,
+                data.packet_loss,
+                data.network_type,
+                data.connectivity_score,
+                data.latitude,
+                data.longitude,
+            ),
         )
 
+        connection.commit()
+
+        return {
+            "status": "success",
+            "message": "Network test saved",
+            "id": cursor.lastrowid,
+        }
+
+    except sqlite3.Error as error:
+        if connection is not None:
+            connection.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not save network history: {error}",
+        ) from error
+
+    finally:
+        if connection is not None:
+            connection.close()
 
-
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-
-        """,
-
-
-
-        (
-
-            timestamp,
-
-
-
-            data.download_mbps,
-
-
-
-            data.upload_mbps,
-
-
-
-            data.ping_ms,
-
-
-
-            data.jitter_ms,
-
-
-
-            data.packet_loss,
-
-
-
-            data.network_type,
-
-
-
-            data.connectivity_score,
-
-
-
-            data.latitude,
-
-
-
-            data.longitude
-
-        )
-
-    )
-
-
-
-
-
-    connection.commit()
-
-
-
-    test_id = cursor.lastrowid
-
-
-
-    connection.close()
-
-
-
-
-
-    return {
-
-
-
-        "status": "success",
-
-
-
-        "message": "Network test saved",
-
-
-
-        "id": test_id
-
-    }
-
-
-
-
-
-# ============================================================
 
 # NETWORK HISTORY
 

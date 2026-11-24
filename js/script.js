@@ -1744,11 +1744,13 @@ async function startNetworkTest() {
         updateHistoryChart(sessionTests);
         updateSessionStatistics();
 
-        await saveNetworkTest(entry);
+        const saved = await saveNetworkTest(entry);
 
         setText(
             "testMessage",
-            "Network test completed successfully."
+            saved
+                ? "Network test completed and saved to history."
+                : "Network test completed, but could not be saved to history. Check the backend."
         );
 
         showToast("Network test completed.");
@@ -2561,30 +2563,29 @@ async function saveNetworkTest(testData) {
             `${API_BASE}/network-test`,
             {
                 method: "POST",
-
                 headers: {
                     "Content-Type": "application/json"
                 },
-
                 body: JSON.stringify(testData)
             }
         );
 
-        if (response.ok) {
-            console.log("Network test saved to backend.");
-            return;
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            throw new Error(
+                result.detail ||
+                result.message ||
+                `Network history API returned ${response.status}`
+            );
         }
 
-        console.warn(
-            "POST /network-test returned:",
-            response.status
-        );
+        console.log("Network test saved:", result.id);
+        return true;
 
     } catch (error) {
-        console.warn(
-            "Could not save network test:",
-            error.message
-        );
+        console.error("Could not save network test:", error.message);
+        return false;
     }
 }
 
