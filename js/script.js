@@ -221,6 +221,7 @@ async function initializeApplication() {
     wasDeviceOffline = isDeviceOffline();
 
     setupButtons();
+    renderBrowserCapabilityDiagnostics();
     setupNetworkListeners();
     detectNetworkType();
     applyConnectivityStatusIndicator();
@@ -296,6 +297,127 @@ const STATUS_INDICATOR_CLASSES = Object.freeze([
     "fair",
     "poor"
 ]);
+
+let locationPermissionStatus = "unknown";
+
+/**
+ * Detect only browser capabilities used by this dashboard.
+ * Does not request permissions or collect browser fingerprinting data.
+ */
+function getBrowserCapabilityDiagnostics(
+    environment = typeof globalThis !== "undefined" ? globalThis : {},
+    permissionStatus = locationPermissionStatus
+) {
+    const browserNavigator = environment.navigator || {};
+
+    let storageAvailable = false;
+
+    try {
+        const storage = environment.localStorage;
+        storageAvailable = Boolean(
+            storage &&
+            typeof storage.getItem === "function" &&
+            typeof storage.setItem === "function"
+        );
+    } catch (error) {
+        storageAvailable = false;
+    }
+
+    const hasGeolocation = Boolean(
+        browserNavigator.geolocation &&
+        typeof browserNavigator.geolocation.getCurrentPosition === "function"
+    );
+
+    const hasNetworkInformation = Boolean(
+        browserNavigator.connection ||
+        browserNavigator.mozConnection ||
+        browserNavigator.webkitConnection
+    );
+
+    const hasOnlineStatus = typeof browserNavigator.onLine === "boolean";
+
+    return [
+        {
+            id: "geolocation",
+            label: "Location detection",
+            status: !hasGeolocation
+                ? "unsupported"
+                : permissionStatus === "denied"
+                    ? "permission-denied"
+                    : "supported",
+            message: !hasGeolocation
+                ? "This browser does not support location detection."
+                : permissionStatus === "denied"
+                    ? "Location permission was denied. Allow location access in browser settings."
+                    : permissionStatus === "granted"
+                        ? "Location access has been granted."
+                        : "Available. Permission is requested only when you detect your location."
+        },
+        {
+            id: "networkInformation",
+            label: "Network information",
+            status: hasNetworkInformation ? "supported" : "unsupported",
+            message: hasNetworkInformation
+                ? "Additional connection details are available."
+                : "Additional connection details are not supported. Network tests still work."
+        },
+        {
+            id: "onlineStatus",
+            label: "Online status",
+            status: hasOnlineStatus ? "supported" : "unsupported",
+            message: hasOnlineStatus
+                ? "Browser online/offline status is available."
+                : "Browser online/offline status is unavailable."
+        },
+        {
+            id: "localStorage",
+            label: "Local storage",
+            status: storageAvailable ? "supported" : "unsupported",
+            message: storageAvailable
+                ? "Saved connectivity locations can use browser storage."
+                : "Browser storage is unavailable. Saving locations may not work."
+        }
+    ];
+}
+
+function renderBrowserCapabilityDiagnostics() {
+    const container = $("browserCapabilityList");
+    if (!container) return;
+
+    const diagnostics = getBrowserCapabilityDiagnostics();
+
+    const statusLabels = {
+        supported: "Supported",
+        unsupported: "Unsupported",
+        "permission-denied": "Permission denied"
+    };
+
+    container.replaceChildren();
+
+    diagnostics.forEach((capability) => {
+        const item = document.createElement("div");
+        item.className = "rounded-xl border border-slate-200 bg-white/70 p-3";
+
+        const heading = document.createElement("div");
+        heading.className = "flex flex-wrap items-center justify-between gap-2";
+
+        const label = document.createElement("strong");
+        label.className = "text-sm text-slate-800";
+        label.textContent = capability.label;
+
+        const status = document.createElement("span");
+        status.className = "text-xs font-bold";
+        status.textContent = statusLabels[capability.status];
+
+        const message = document.createElement("p");
+        message.className = "mt-1 text-xs text-slate-600";
+        message.textContent = capability.message;
+
+        heading.append(label, status);
+        item.append(heading, message);
+        container.appendChild(item);
+    });
+}
 
 function getBrowserConnection() {
     if (typeof navigator === "undefined") return null;
@@ -761,7 +883,13 @@ function ensureMapReady() {
    ========================================================= */
 
 function detectLocation() {
-    if (!navigator.geolocation) {
+    if (
+        typeof navigator === "undefined" ||
+        !navigator.geolocation ||
+        typeof navigator.geolocation.getCurrentPosition !== "function"
+    ) {
+        locationPermissionStatus = "unknown";
+        renderBrowserCapabilityDiagnostics();
         showToast("Geolocation is not supported.");
 
         setText(
@@ -779,6 +907,9 @@ function detectLocation() {
 
     navigator.geolocation.getCurrentPosition(
         (position) => {
+            locationPermissionStatus = "granted";
+            renderBrowserCapabilityDiagnostics();
+
             const latitude = position.coords.latitude;
             const longitude = position.coords.longitude;
             const accuracy = position.coords.accuracy;
@@ -820,6 +951,8 @@ function detectLocation() {
             let message = "Unable to detect location.";
 
             if (error.code === 1) {
+                locationPermissionStatus = "denied";
+                renderBrowserCapabilityDiagnostics();
                 message =
                     "Location permission denied. Allow location access in your browser.";
             } else if (error.code === 2) {
@@ -2793,6 +2926,7 @@ const smartConnectivity = {
     },
 
     checkBackendHealth,
+    getBrowserCapabilityDiagnostics,
     loadNetworkHistory,
     detectLocation,
     saveLocation,
@@ -2873,6 +3007,7 @@ if (typeof module !== "undefined" && module.exports) {
         formatAnomalyMetric,
         loadNetworkHistory,
         smartConnectivity,
+        getBrowserCapabilityDiagnostics,
         resolveNetworkType,
         detectNetworkType
     };

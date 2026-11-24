@@ -410,3 +410,21 @@ Check whether a `LICENSE` file exists in the repository before reusing or redist
 <p align="center">
   🚀 <a href="https://smart-connectivity-analyser.onrender.com/">Try the Live Application</a>
 </p>
+
+
+## Browser Compatibility
+
+The dashboard checks only browser capabilities used by its existing features:
+
+| Browser capability | Dashboard feature | If unavailable |
+|---|---|---|
+| Geolocation API | Detect current location | Location detection is unavailable. |
+| Network Information API | Additional connection details | Network speed tests continue to work; extra connection details may be unavailable. |
+| `navigator.onLine` | Browser online/offline indication | Online status may be unavailable. |
+| Local Storage | Save connectivity locations | Saving locations may be unavailable. |
+
+Geolocation requires a secure context (HTTPS or localhost) and user permission. Permission is requested only when the user selects **Detect Location**. A denied permission is reported separately from an unsupported Geolocation API.
+
+Network Information API support varies between browsers. Its absence does not prevent network measurements or other dashboard features.
+
+Compatibility checks do not collect browser fingerprints, inspect unrelated browser properties, or request permissions automatically.
